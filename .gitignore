@@ -1,0 +1,13 @@
+.claude
+
+# Секреты доступа (токен Figma и пр.) — никогда не коммитим
+.env
+.env.*
+
+# Заметки
+notes/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
