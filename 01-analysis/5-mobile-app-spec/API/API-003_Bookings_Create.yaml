@@ -1,0 +1,343 @@
+# Создание записи на тренировку с выбором проката
+
+openapi: 3.0.3
+info:
+  title: API Создания Записи — Вертикаль
+  description: |
+    Эндпоинт для создания записи (брони) клиента на тренировку.
+    
+    **Принципы:**
+    - Все запросы требуют авторизации (JWT токен).
+    - Бронирование выполняется атомарно на стороне сервера.
+    - Бэкенд гарантирует отсутствие двойных броней (проверка мест в транзакции).
+    - Запись создаётся мгновенно со статусом CONFIRMED.
+    
+    **Связанные требования:**
+    - FR-020, FR-021, FR-024, FR-025, FR-026, FR-027, FR-090
+    - UC-004
+  version: 1.0.0
+  contact:
+    name: Команда разработки "Вертикаль"
+servers:
+  - url: https://api.vertical-climbing.ru/v1
+    description: Production server
+  - url: https://staging-api.vertical-climbing.ru/v1
+    description: Staging server
+paths:
+  /bookings:
+    post:
+      summary: Создание записи на тренировку
+      description: |
+        Создаёт запись клиента на указанный слот тренировки.
+        
+        **Атомарные проверки на сервере:**
+        1. Слот существует
+        2. Слот доступен (status = AVAILABLE)
+        3. Есть свободные места (availableSpots > 0)
+        4. У клиента нет активного долга
+        5. Есть снаряжение (если выбрано equipmentRental)
+        6. Валидный абонемент (если useSubscription = true)
+        
+        **Важно:** Все проверки выполняются атомарно в одной транзакции.
+      tags:
+        - Bookings
+      operationId: createBooking
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBookingRequest'
+            examples:
+              with_rental:
+                summary: Запись с прокатом снаряжения
+                value:
+                  slotId: "slot-001"
+                  equipmentRental:
+                    - SHOES
+                    - HARNESS
+                  useSubscription: true
+              without_rental:
+                summary: Запись со своим снаряжением
+                value:
+                  slotId: "slot-001"
+                  equipmentRental: []
+                  useSubscription: false
+      responses:
+        '201':
+          description: Запись успешно создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+              examples:
+                created_with_rental:
+                  summary: Создана с прокатом
+                  value:
+                    bookingId: "book-001"
+                    status: "CONFIRMED"
+                    slot:
+                      id: "slot-001"
+                      startTime: "2026-07-05T18:00:00+03:00"
+                      endTime: "2026-07-05T19:30:00+03:00"
+                      format: "BOULDERING_BEGINNER"
+                      instructorName: "Анна С."
+                      zone: "Стена А"
+                    equipmentRental:
+                      - SHOES
+                      - HARNESS
+                    totalPrice: 1700.00
+                    subscriptionUsed: true
+                    createdAt: "2026-07-05T16:30:00+03:00"
+        '400':
+          description: Неверные данные запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_rental:
+                  value:
+                    code: "INVALID_RENTAL_OPTION"
+                    message: "Выбранная опция проката недоступна для этого слота"
+                invalid_slot:
+                  value:
+                    code: "INVALID_SLOT_ID"
+                    message: "Неверный идентификатор слота"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '403':
+          description: Доступ запрещён (активный долг)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "ACTIVE_DEBT"
+                message: "У вас есть активный долг за неявку. Обратитесь к администратору для погашения"
+                details:
+                  debtAmount: 1200.00
+                  debtReason: "No-show на тренировке 10.07.2026"
+        '404':
+          description: Слот не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SLOT_NOT_FOUND"
+                message: "Тренировка не найдена"
+        '409':
+          description: Конфликт - нет свободных мест
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "NO_AVAILABLE_SPOTS"
+                message: "К сожалению, все места на эту тренировку уже заняты"
+        '410':
+          description: Слот отменён скалодромом
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SLOT_CANCELLED"
+                message: "Тренировка отменена скалодромом"
+                details:
+                  reason: "Профилактика снаряжения"
+        '422':
+          description: Валидационная ошибка (например, абонемент недействителен)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                subscription_expired:
+                  value:
+                    code: "SUBSCRIPTION_EXPIRED"
+                    message: "Срок действия абонемента истёк"
+                subscription_exhausted:
+                  value:
+                    code: "SUBSCRIPTION_EXHAUSTED"
+                    message: "Все занятия в абонементе использованы"
+                equipment_unavailable:
+                  value:
+                    code: "EQUIPMENT_UNAVAILABLE"
+                    message: "Недостаточно снаряжения в прокате для вашего выбора"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+components:
+  schemas:
+    CreateBookingRequest:
+      type: object
+      required:
+        - slotId
+      properties:
+        slotId:
+          type: string
+          format: uuid
+          description: ID слота тренировки
+          example: "slot-001"
+        equipmentRental:
+          type: array
+          description: Список выбранных опций проката снаряжения (если пусто — со своим снаряжением)
+          items:
+            type: string
+            enum:
+              - SHOES
+              - HARNESS
+          example: ["SHOES", "HARNESS"]
+        useSubscription:
+          type: boolean
+          description: |
+            Флаг использования абонемента для оплаты.
+            - true: списать занятие из абонемента (если валиден)
+            - false: оплата будет произведена на месте
+          example: true
+
+    Booking:
+      type: object
+      required:
+        - bookingId
+        - status
+        - slot
+        - totalPrice
+        - createdAt
+      properties:
+        bookingId:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор записи
+          example: "book-001"
+        status:
+          $ref: '#/components/schemas/BookingStatus'
+        slot:
+          type: object
+          required:
+            - id
+            - startTime
+            - endTime
+            - format
+            - instructorName
+            - zone
+          properties:
+            id:
+              type: string
+              format: uuid
+              description: ID слота
+              example: "slot-001"
+            startTime:
+              type: string
+              format: date-time
+              description: Время начала тренировки
+              example: "2026-07-05T18:00:00+03:00"
+            endTime:
+              type: string
+              format: date-time
+              description: Время окончания тренировки
+              example: "2026-07-05T19:30:00+03:00"
+            format:
+              type: string
+              enum:
+                - BOULDERING_BEGINNER
+                - ROPE_ADVANCED
+              description: Формат тренировки
+              example: "BOULDERING_BEGINNER"
+            instructorName:
+              type: string
+              description: Имя инструктора
+              example: "Анна С."
+            zone:
+              type: string
+              description: Название зоны проведения тренировки
+              example: "Стена А"
+        equipmentRental:
+          type: array
+          description: Список выбранных опций проката
+          items:
+            type: string
+            enum:
+              - SHOES
+              - HARNESS
+          example: ["SHOES", "HARNESS"]
+        totalPrice:
+          type: number
+          format: decimal
+          description: Итоговая цена (тренировка + прокат)
+          example: 1700.00
+        subscriptionUsed:
+          type: boolean
+          description: Был ли использован абонемент
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          description: Дата создания записи
+          example: "2026-07-05T16:30:00+03:00"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Дата последнего обновления записи
+          example: "2026-07-05T16:30:00+03:00"
+
+    BookingStatus:
+      type: string
+      description: Статус записи
+      enum:
+        - CONFIRMED
+        - CANCELLED_BY_CLIENT
+        - CANCELLED_BY_GYM
+        - COMPLETED
+        - NO_SHOW
+      x-enum-descriptions:
+        - "Подтверждена (активная запись)"
+        - "Отменена клиентом"
+        - "Отменена скалодромом"
+        - "Завершена (тренировка состоялась)"
+        - "No-show / долг (клиент не явился и не оплатил)"
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Код ошибки для программной обработки
+          example: "NO_AVAILABLE_SPOTS"
+        message:
+          type: string
+          description: Человекочитаемое сообщение об ошибке на русском языке
+          example: "К сожалению, все места на эту тренировку уже заняты"
+        details:
+          type: object
+          description: Дополнительные детали ошибки
+          example:
+            reason: "Профилактика снаряжения"
+            debtAmount: 1200.00
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

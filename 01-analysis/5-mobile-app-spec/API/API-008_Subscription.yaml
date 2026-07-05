@@ -1,0 +1,280 @@
+# Получение информации об абонементе клиента
+
+openapi: 3.0.3
+info:
+  title: API Абонемента — Вертикаль
+  description: |
+    Эндпоинты для получения информации об абонементе (пакете занятий) клиента.
+    
+    **Принципы:**
+    - Все запросы требуют авторизации (JWT токен).
+    - Данные абонемента только для чтения (управляется администратором).
+    - Абонемент привязан к клиенту (определяется по токену).
+    - Отображает остаток занятий, срок действия и историю списаний.
+    
+    **Связанные требования:**
+    - FR-050, FR-051
+    - UC-012
+  version: 1.0.0
+  contact:
+    name: Команда разработки "Вертикаль"
+servers:
+  - url: https://api.vertical-climbing.ru/v1
+    description: Production server
+  - url: https://staging-api.vertical-climbing.ru/v1
+    description: Staging server
+paths:
+  /subscription:
+    get:
+      summary: Получение информации об абонементе
+      description: |
+        Возвращает информацию об абонементе текущего клиента.
+        
+        **Если абонемент активен:**
+        - Общее количество занятий
+        - Использованные занятия
+        - Оставшиеся занятия
+        - Даты активации и окончания
+        - История списаний (последние записи)
+        
+        **Если абонемент отсутствует:**
+        - Возвращает статус NONE
+        
+        **Если абонемент истёк или исчерпан:**
+        - Возвращает соответствующий статус с деталями
+      tags:
+        - Subscription
+      operationId: getSubscription
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Успешный ответ с данными абонемента
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+              examples:
+                active_subscription:
+                  summary: Активный абонемент
+                  value:
+                    id: "sub-001"
+                    clientId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    status: "ACTIVE"
+                    totalSessions: 10
+                    usedSessions: 5
+                    remainingSessions: 5
+                    startDate: "2026-01-01"
+                    endDate: "2026-12-31"
+                    purchaseDate: "2025-12-20"
+                    history:
+                      - id: "hist-001"
+                        bookingId: "book-001"
+                        sessionDate: "2026-07-05"
+                        format: "BOULDERING_BEGINNER"
+                        instructorName: "Анна С."
+                        usedAt: "2026-07-05T16:30:00+03:00"
+                      - id: "hist-002"
+                        bookingId: "book-002"
+                        sessionDate: "2026-07-02"
+                        format: "ROPE_ADVANCED"
+                        instructorName: "Дмитрий К."
+                        usedAt: "2026-07-02T18:00:00+03:00"
+                      - id: "hist-003"
+                        bookingId: "book-003"
+                        sessionDate: "2026-06-30"
+                        format: "BOULDERING_BEGINNER"
+                        instructorName: "Анна С."
+                        usedAt: "2026-06-30T20:00:00+03:00"
+                exhausted_subscription:
+                  summary: Абонемент исчерпан (все занятия использованы)
+                  value:
+                    id: "sub-002"
+                    clientId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    status: "EXHAUSTED"
+                    totalSessions: 10
+                    usedSessions: 10
+                    remainingSessions: 0
+                    startDate: "2026-01-01"
+                    endDate: "2026-06-30"
+                    purchaseDate: "2025-12-20"
+                    history:
+                      - id: "hist-010"
+                        bookingId: "book-010"
+                        sessionDate: "2026-06-28"
+                        format: "ROPE_ADVANCED"
+                        instructorName: "Дмитрий К."
+                        usedAt: "2026-06-28T18:00:00+03:00"
+                expired_subscription:
+                  summary: Абонемент истёк по сроку
+                  value:
+                    id: "sub-003"
+                    clientId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    status: "EXPIRED"
+                    totalSessions: 8
+                    usedSessions: 3
+                    remainingSessions: 5
+                    startDate: "2025-01-01"
+                    endDate: "2025-12-31"
+                    purchaseDate: "2024-12-20"
+                    history:
+                      - id: "hist-020"
+                        bookingId: "book-020"
+                        sessionDate: "2025-06-15"
+                        format: "BOULDERING_BEGINNER"
+                        instructorName: "Анна С."
+                        usedAt: "2025-06-15T16:00:00+03:00"
+                no_subscription:
+                  summary: Нет абонемента
+                  value:
+                    status: "NONE"
+                    message: "У вас нет активного абонемента"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+components:
+  schemas:
+    Subscription:
+      type: object
+      required:
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор абонемента
+          example: "sub-001"
+        clientId:
+          type: string
+          format: uuid
+          description: ID клиента, владеющего абонементом
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        status:
+          $ref: '#/components/schemas/SubscriptionStatus'
+        totalSessions:
+          type: integer
+          description: Общее количество занятий в пакете
+          example: 10
+        usedSessions:
+          type: integer
+          description: Использовано занятий
+          example: 5
+        remainingSessions:
+          type: integer
+          description: Осталось занятий (totalSessions - usedSessions)
+          example: 5
+        startDate:
+          type: string
+          format: date
+          description: Дата активации абонемента
+          example: "2026-01-01"
+        endDate:
+          type: string
+          format: date
+          description: Дата окончания действия абонемента
+          example: "2026-12-31"
+        purchaseDate:
+          type: string
+          format: date
+          description: Дата покупки абонемента
+          example: "2025-12-20"
+        history:
+          type: array
+          description: История списаний занятий (последние записи)
+          items:
+            $ref: '#/components/schemas/SubscriptionHistoryItem'
+        message:
+          type: string
+          description: Информационное сообщение (для статусов NONE, EXPIRED, EXHAUSTED)
+          example: "У вас нет активного абонемента"
+
+    SubscriptionStatus:
+      type: string
+      description: Статус абонемента
+      enum:
+        - ACTIVE
+        - EXPIRED
+        - EXHAUSTED
+        - NONE
+      x-enum-descriptions:
+        - "Абонемент активен"
+        - "Срок действия истёк"
+        - "Все занятия использованы"
+        - "Абонемент отсутствует"
+
+    SubscriptionHistoryItem:
+      type: object
+      required:
+        - id
+        - sessionDate
+        - format
+        - instructorName
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор записи в истории
+          example: "hist-001"
+        bookingId:
+          type: string
+          format: uuid
+          description: ID записи, по которой списано занятие
+          example: "book-001"
+        sessionDate:
+          type: string
+          format: date
+          description: Дата тренировки
+          example: "2026-07-05"
+        format:
+          type: string
+          enum:
+            - BOULDERING_BEGINNER
+            - ROPE_ADVANCED
+          description: Формат тренировки
+          example: "BOULDERING_BEGINNER"
+        instructorName:
+          type: string
+          description: Имя инструктора
+          example: "Анна С."
+        usedAt:
+          type: string
+          format: date-time
+          description: Дата и время списания занятия
+          example: "2026-07-05T16:30:00+03:00"
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Код ошибки для программной обработки
+          example: "UNAUTHORIZED"
+        message:
+          type: string
+          description: Человекочитаемое сообщение об ошибке на русском языке
+          example: "Необходима авторизация. Токен невалидный или истёк"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

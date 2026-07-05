@@ -1,0 +1,480 @@
+
+# Аутентификация и регистрация клиента
+
+openapi: 3.0.3
+info:
+  title: API Аутентификации — Вертикаль
+  description: |
+    Эндпоинты для регистрации, верификации и входа клиента в систему.
+    
+    **Принципы:**
+    - Все запросы, кроме указанных, не требуют авторизации.
+    - Бэкенд гарантирует уникальность аккаунта на один номер телефона/email.
+    - Токены доступа (JWT) и refresh-токены выдаются после успешной аутентификации.
+    
+    **Связанные требования:**
+    - FR-001, FR-002, FR-003, FR-004, FR-005
+    - UC-001
+  version: 1.0.0
+  contact:
+    name: Команда разработки "Вертикаль"
+servers:
+  - url: https://api.vertical-climbing.ru/v1
+    description: Production server
+  - url: https://staging-api.vertical-climbing.ru/v1
+    description: Staging server
+paths:
+  /auth/register:
+    post:
+      summary: Регистрация нового клиента
+      description: |
+        Инициирует процесс регистрации. Проверяет возраст (не младше 6 лет) 
+        и уникальность номера телефона. В ответ возвращает `verificationId` 
+        для подтверждения.
+      tags:
+        - Authentication
+      operationId: registerClient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              phone:
+                summary: Регистрация по телефону
+                value:
+                  phone: "+79991234567"
+                  name: "Анна"
+                  birthDate: "1995-03-15"
+                  method: "PHONE"
+              telegram:
+                summary: Регистрация через Telegram
+                value:
+                  phone: "+79991234567"
+                  name: "Анна"
+                  birthDate: "1995-03-15"
+                  method: "TELEGRAM"
+                  telegramId: "123456789"
+              email:
+                summary: Регистрация по email
+                value:
+                  phone: "+79991234567"
+                  email: "anna@mail.com"
+                  name: "Анна"
+                  birthDate: "1995-03-15"
+                  method: "EMAIL"
+      responses:
+        '200':
+          description: Запрос на регистрацию принят, требуется подтверждение
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          description: Неверный формат данных
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "INVALID_PHONE_FORMAT"
+                message: "Введите корректный номер телефона в формате +7XXXXXXXXXX"
+        '409':
+          description: Конфликт - телефон или email уже заняты
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                phone_exists:
+                  value:
+                    code: "PHONE_ALREADY_REGISTERED"
+                    message: "Этот номер уже используется. Войдите в аккаунт"
+                email_exists:
+                  value:
+                    code: "EMAIL_ALREADY_REGISTERED"
+                    message: "Этот email уже используется. Войдите в аккаунт"
+        '422':
+          description: Валидационная ошибка (например, возраст < 6 лет)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "AGE_RESTRICTION"
+                message: "Регистрация доступна с 6 лет"
+
+  /auth/verify:
+    post:
+      summary: Подтверждение регистрации
+      description: |
+        Подтверждает регистрацию с помощью кода, отправленного на телефон или email.
+        При успехе возвращает токены доступа.
+      tags:
+        - Authentication
+      operationId: verifyRegistration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyRequest'
+            example:
+              verificationId: "abc-123-def-456"
+              code: "123456"
+      responses:
+        '200':
+          description: Регистрация подтверждена, токены выданы
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokens'
+        '400':
+          description: Неверный код
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "INVALID_VERIFICATION_CODE"
+                message: "Неверный код. Попробуйте ещё раз"
+        '410':
+          description: Код истёк
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "VERIFICATION_CODE_EXPIRED"
+                message: "Код устарел. Запросите новый"
+        '404':
+          description: verificationId не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "VERIFICATION_NOT_FOUND"
+                message: "Сессия верификации не найдена"
+
+  /auth/login:
+    post:
+      summary: Вход в систему
+      description: |
+        Вход для существующего клиента. Поддерживает вход по телефону, Telegram и email.
+        При успехе возвращает токены доступа.
+      tags:
+        - Authentication
+      operationId: loginClient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              phone:
+                summary: Вход по телефону
+                value:
+                  phone: "+79991234567"
+                  code: "123456"
+                  method: "PHONE"
+              email:
+                summary: Вход по email
+                value:
+                  email: "anna@mail.com"
+                  code: "123456"
+                  method: "EMAIL"
+              telegram:
+                summary: Вход через Telegram
+                value:
+                  telegramId: "123456789"
+                  method: "TELEGRAM"
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokens'
+        '400':
+          description: Неверные данные для входа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_credentials:
+                  value:
+                    code: "INVALID_CREDENTIALS"
+                    message: "Неверный код или пользователь не найден"
+                invalid_telegram:
+                  value:
+                    code: "TELEGRAM_ACCOUNT_NOT_FOUND"
+                    message: "Аккаунт Telegram не найден в системе"
+        '404':
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "USER_NOT_FOUND"
+                message: "Пользователь не найден"
+
+  /auth/refresh:
+    post:
+      summary: Обновление токена доступа
+      description: |
+        Используется для получения нового access-токена с помощью refresh-токена.
+        Выполняется бесшовно для пользователя без потери контекста.
+      tags:
+        - Authentication
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+                  description: Refresh-токен, полученный при аутентификации
+            example:
+              refreshToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+      responses:
+        '200':
+          description: Новый access-токен успешно выдан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: Новый JWT access-токен
+                example:
+                  token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiaWF0IjoxNTE2MjM5MDIyfQ..."
+        '401':
+          description: Refresh-токен невалидный или истёк
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "INVALID_REFRESH_TOKEN"
+                message: "Сессия истекла. Войдите заново"
+
+components:
+  schemas:
+    RegisterRequest:
+      type: object
+      required:
+        - phone
+        - name
+        - birthDate
+        - method
+      properties:
+        phone:
+          type: string
+          pattern: '^\+7\d{10}$'
+          description: Номер телефона в формате +7XXXXXXXXXX
+          example: "+79991234567"
+        email:
+          type: string
+          format: email
+          description: Email (обязателен для метода EMAIL)
+          example: "anna@mail.com"
+        telegramId:
+          type: string
+          description: ID в Telegram (обязателен для метода TELEGRAM)
+          example: "123456789"
+        name:
+          type: string
+          minLength: 2
+          description: Имя клиента
+          example: "Анна"
+        birthDate:
+          type: string
+          format: date
+          description: Дата рождения (проверяется возраст >= 6 лет)
+          example: "1995-03-15"
+        method:
+          type: string
+          enum: [PHONE, TELEGRAM, EMAIL]
+          description: Способ регистрации
+
+    RegisterResponse:
+      type: object
+      required:
+        - userId
+        - verificationId
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Временный ID пользователя для сессии верификации
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        verificationId:
+          type: string
+          description: Уникальный ID сессии верификации, используется для подтверждения
+          example: "ver_abc123def456"
+
+    VerifyRequest:
+      type: object
+      required:
+        - verificationId
+        - code
+      properties:
+        verificationId:
+          type: string
+          description: ID сессии верификации из RegisterResponse
+          example: "ver_abc123def456"
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+          pattern: '^[0-9]{6}$'
+          description: 6-значный код подтверждения
+          example: "123456"
+
+    LoginRequest:
+      type: object
+      required:
+        - method
+      properties:
+        phone:
+          type: string
+          pattern: '^\+7\d{10}$'
+          description: Номер телефона (обязателен для метода PHONE)
+          example: "+79991234567"
+        email:
+          type: string
+          format: email
+          description: Email (обязателен для метода EMAIL)
+          example: "anna@mail.com"
+        telegramId:
+          type: string
+          description: ID в Telegram (обязателен для метода TELEGRAM)
+          example: "123456789"
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+          pattern: '^[0-9]{6}$'
+          description: 6-значный код подтверждения (для методов PHONE и EMAIL)
+          example: "123456"
+        method:
+          type: string
+          enum: [PHONE, TELEGRAM, EMAIL]
+          description: Способ входа
+
+    AuthTokens:
+      type: object
+      required:
+        - token
+        - refreshToken
+        - user
+      properties:
+        token:
+          type: string
+          description: JWT access-токен для авторизации запросов
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiaWF0IjoxNTE2MjM5MDIyfQ..."
+        refreshToken:
+          type: string
+          description: Refresh-токен для обновления access-токена
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.refresh..."
+        user:
+          $ref: '#/components/schemas/UserProfile'
+
+    UserProfile:
+      type: object
+      required:
+        - id
+        - phone
+        - name
+        - birthDate
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный ID клиента
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        phone:
+          type: string
+          pattern: '^\+7\d{10}$'
+          description: Номер телефона
+          example: "+79991234567"
+        email:
+          type: string
+          format: email
+          description: Email (если указан)
+          example: "anna@mail.com"
+        telegramId:
+          type: string
+          description: ID в Telegram (если указан)
+          example: "123456789"
+        name:
+          type: string
+          description: Имя клиента
+          example: "Анна"
+        birthDate:
+          type: string
+          format: date
+          description: Дата рождения
+          example: "1995-03-15"
+        photo:
+          type: string
+          format: uri
+          description: URL фото/аватара клиента
+          example: "https://storage.vertical-climbing.ru/avatars/user_123.jpg"
+        clientStatus:
+          type: string
+          description: Статус клиента (для будущей программы лояльности)
+          example: "Постоянный клиент"
+        hasDebt:
+          type: boolean
+          description: Флаг активного долга
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+          description: Дата создания аккаунта
+          example: "2026-01-01T10:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Дата последнего обновления
+          example: "2026-07-05T14:30:00Z"
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Код ошибки для программной обработки
+          example: "INVALID_CREDENTIALS"
+        message:
+          type: string
+          description: Человекочитаемое сообщение об ошибке на русском языке
+          example: "Неверный код. Попробуйте ещё раз"
+        details:
+          type: object
+          description: Дополнительные детали ошибки (опционально)
+          example:
+            field: "phone"
+            reason: "invalid_format"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

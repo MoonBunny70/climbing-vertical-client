@@ -1,0 +1,240 @@
+# Изменение выбора проката в существующей записи
+
+openapi: 3.0.3
+info:
+  title: API Изменения Проката — Вертикаль
+  description: |
+    Эндпоинт для изменения выбора проката снаряжения в существующей записи.
+    
+    **Принципы:**
+    - Все запросы требуют авторизации (JWT токен).
+    - Изменение доступно только для записей со статусом CONFIRMED.
+    - Запись должна принадлежать текущему клиенту (определяется по токену).
+    - Изменение доступно только до порога `n` минут до начала тренировки.
+    
+    **Правило изменения проката:**
+    - До порога `n` минут: изменение доступно.
+    - После порога `n` минут: изменение ЗАПРЕЩЕНО.
+    
+    **Связанные требования:**
+    - FR-033, FR-034, FR-035
+    - UC-006
+  version: 1.0.0
+  contact:
+    name: Команда разработки "Вертикаль"
+servers:
+  - url: https://api.vertical-climbing.ru/v1
+    description: Production server
+  - url: https://staging-api.vertical-climbing.ru/v1
+    description: Staging server
+paths:
+  /bookings/{bookingId}/rental:
+    patch:
+      summary: Изменение выбора проката
+      description: |
+        Обновляет список проката снаряжения для существующей записи.
+        
+        **Проверки на сервере:**
+        1. Запись существует
+        2. Запись принадлежит текущему клиенту
+        3. Статус записи = CONFIRMED
+        4. До начала тренировки >= `n` минут (порог из системных параметров)
+        5. Выбранное снаряжение доступно в прокате
+        
+        **Результат:**
+        - Обновлённый список проката
+        - Пересчитанная итоговая цена
+      tags:
+        - Bookings
+      operationId: updateBookingRental
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bookingId
+          in: path
+          required: true
+          description: ID записи для изменения проката
+          schema:
+            type: string
+            format: uuid
+            example: "book-001"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - equipmentRental
+              properties:
+                equipmentRental:
+                  type: array
+                  description: Новый список опций проката (пустой массив = со своим снаряжением)
+                  items:
+                    type: string
+                    enum:
+                      - SHOES
+                      - HARNESS
+                  example: ["HARNESS"]
+            examples:
+              add_harness:
+                summary: Добавить страховочную систему
+                value:
+                  equipmentRental: ["SHOES", "HARNESS"]
+              remove_shoes:
+                summary: Убрать скальники
+                value:
+                  equipmentRental: ["HARNESS"]
+              own_equipment:
+                summary: Со своим снаряжением
+                value:
+                  equipmentRental: []
+      responses:
+        '200':
+          description: Прокат успешно обновлён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    description: ID записи
+                    example: "book-001"
+                  equipmentRental:
+                    type: array
+                    description: Обновлённый список проката
+                    items:
+                      type: string
+                      enum:
+                        - SHOES
+                        - HARNESS
+                    example: ["SHOES", "HARNESS"]
+                  totalPrice:
+                    type: number
+                    format: decimal
+                    description: Пересчитанная итоговая цена (тренировка + прокат)
+                    example: 1700.00
+                  updatedAt:
+                    type: string
+                    format: date-time
+                    description: Дата и время обновления
+                    example: "2026-07-05T17:30:00+03:00"
+              examples:
+                updated_with_rental:
+                  summary: Обновлено с прокатом
+                  value:
+                    id: "book-001"
+                    equipmentRental: ["SHOES", "HARNESS"]
+                    totalPrice: 1700.00
+                    updatedAt: "2026-07-05T17:30:00+03:00"
+                updated_without_rental:
+                  summary: Обновлено без проката (со своим снаряжением)
+                  value:
+                    id: "book-001"
+                    equipmentRental: []
+                    totalPrice: 1200.00
+                    updatedAt: "2026-07-05T17:30:00+03:00"
+        '400':
+          description: Неверные данные запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                rental_change_not_allowed:
+                  value:
+                    code: "RENTAL_CHANGE_NOT_ALLOWED"
+                    message: "Изменение проката недоступно за 15 минут до начала тренировки"
+                    details:
+                      thresholdMinutes: 120
+                      minutesUntilStart: 15
+                invalid_rental_option:
+                  value:
+                    code: "INVALID_RENTAL_OPTION"
+                    message: "Выбранная опция проката недоступна"
+                equipment_unavailable:
+                  value:
+                    code: "EQUIPMENT_UNAVAILABLE"
+                    message: "Недостаточно снаряжения в прокате для вашего выбора"
+                    details:
+                      option: "SHOES"
+                      available: 1
+                      requested: 2
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '403':
+          description: Доступ запрещён (запись принадлежит другому клиенту)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "FORBIDDEN"
+                message: "У вас нет прав на изменение этой записи"
+        '404':
+          description: Запись не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "BOOKING_NOT_FOUND"
+                message: "Запись не найдена"
+        '422':
+          description: Валидационная ошибка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "INVALID_BOOKING_STATUS"
+                message: "Изменение проката доступно только для подтверждённых записей"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Код ошибки для программной обработки
+          example: "RENTAL_CHANGE_NOT_ALLOWED"
+        message:
+          type: string
+          description: Человекочитаемое сообщение об ошибке на русском языке
+          example: "Изменение проката недоступно за 15 минут до начала тренировки"
+        details:
+          type: object
+          description: Дополнительные детали ошибки
+          example:
+            thresholdMinutes: 120
+            minutesUntilStart: 15
+            option: "SHOES"
+            available: 1
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

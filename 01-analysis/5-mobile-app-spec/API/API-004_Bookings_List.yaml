@@ -1,0 +1,349 @@
+# Получение списка записей текущего клиента с фильтрацией по статусу
+
+openapi: 3.0.3
+info:
+  title: API Списка Записей — Вертикаль
+  description: |
+    Эндпоинт для получения списка записей текущего авторизованного клиента.
+    
+    **Принципы:**
+    - Все запросы требуют авторизации (JWT токен).
+    - Возвращаются только записи текущего клиента (определяется по токену).
+    - Поддерживается фильтрация по статусу и пагинация.
+    - Сортировка по умолчанию: по убыванию даты создания.
+    
+    **Связанные требования:**
+    - FR-030
+    - UC-007
+  version: 1.0.0
+  contact:
+    name: Команда разработки "Вертикаль"
+servers:
+  - url: https://api.vertical-climbing.ru/v1
+    description: Production server
+  - url: https://staging-api.vertical-climbing.ru/v1
+    description: Staging server
+paths:
+  /bookings:
+    get:
+      summary: Получение списка записей клиента
+      description: |
+        Возвращает список всех записей текущего клиента с возможностью фильтрации по статусу.
+        
+        **Статусы записей:**
+        - CONFIRMED — активные записи на будущие тренировки
+        - CANCELLED_BY_CLIENT — отменены клиентом
+        - CANCELLED_BY_GYM — отменены скалодромом
+        - COMPLETED — завершённые тренировки
+        - NO_SHOW — неявка без оплаты (долг)
+      tags:
+        - Bookings
+      operationId: getClientBookings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: Фильтр по статусу записи. Если не указан, возвращаются все статусы.
+          required: false
+          schema:
+            type: string
+            enum:
+              - CONFIRMED
+              - CANCELLED_BY_CLIENT
+              - CANCELLED_BY_GYM
+              - COMPLETED
+              - NO_SHOW
+            example: "CONFIRMED"
+        - name: limit
+          in: query
+          description: Количество записей на страницу (максимум 50)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+            example: 20
+        - name: offset
+          in: query
+          description: Смещение для пагинации
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+      responses:
+        '200':
+          description: Успешный ответ со списком записей
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BookingListItem'
+                  total:
+                    type: integer
+                    description: Общее количество записей (без учёта пагинации)
+                    example: 12
+                  limit:
+                    type: integer
+                    description: Лимит на страницу
+                    example: 20
+                  offset:
+                    type: integer
+                    description: Смещение
+                    example: 0
+              examples:
+                active_bookings:
+                  summary: Активные записи (CONFIRMED)
+                  value:
+                    bookings:
+                      - id: "book-001"
+                        status: "CONFIRMED"
+                        slot:
+                          id: "slot-001"
+                          startTime: "2026-07-05T18:00:00+03:00"
+                          endTime: "2026-07-05T19:30:00+03:00"
+                          format: "BOULDERING_BEGINNER"
+                          instructorName: "Анна С."
+                          zone: "Стена А"
+                        equipmentRental:
+                          - SHOES
+                          - HARNESS
+                        totalPrice: 1700.00
+                        createdAt: "2026-07-05T16:30:00+03:00"
+                        cancellationReason: null
+                    total: 1
+                    limit: 20
+                    offset: 0
+                all_statuses:
+                  summary: Все записи с разными статусами
+                  value:
+                    bookings:
+                      - id: "book-001"
+                        status: "CONFIRMED"
+                        slot:
+                          id: "slot-001"
+                          startTime: "2026-07-05T18:00:00+03:00"
+                          endTime: "2026-07-05T19:30:00+03:00"
+                          format: "BOULDERING_BEGINNER"
+                          instructorName: "Анна С."
+                          zone: "Стена А"
+                        equipmentRental:
+                          - SHOES
+                          - HARNESS
+                        totalPrice: 1700.00
+                        createdAt: "2026-07-05T16:30:00+03:00"
+                        cancellationReason: null
+                      - id: "book-002"
+                        status: "CANCELLED_BY_GYM"
+                        slot:
+                          id: "slot-003"
+                          startTime: "2026-07-04T21:00:00+03:00"
+                          endTime: "2026-07-04T22:30:00+03:00"
+                          format: "BOULDERING_BEGINNER"
+                          instructorName: "Сергей П."
+                          zone: "Стена А"
+                        equipmentRental: []
+                        totalPrice: 1200.00
+                        createdAt: "2026-07-03T14:00:00+03:00"
+                        cancellationReason: "Профилактика снаряжения"
+                      - id: "book-003"
+                        status: "COMPLETED"
+                        slot:
+                          id: "slot-004"
+                          startTime: "2026-07-02T18:00:00+03:00"
+                          endTime: "2026-07-02T19:30:00+03:00"
+                          format: "ROPE_ADVANCED"
+                          instructorName: "Дмитрий К."
+                          zone: "Стена Б"
+                        equipmentRental:
+                          - SHOES
+                        totalPrice: 1400.00
+                        createdAt: "2026-07-01T20:00:00+03:00"
+                        cancellationReason: null
+                      - id: "book-004"
+                        status: "NO_SHOW"
+                        slot:
+                          id: "slot-005"
+                          startTime: "2026-06-30T18:00:00+03:00"
+                          endTime: "2026-06-30T19:30:00+03:00"
+                          format: "BOULDERING_BEGINNER"
+                          instructorName: "Анна С."
+                          zone: "Стена А"
+                        equipmentRental: []
+                        totalPrice: 1200.00
+                        createdAt: "2026-06-29T10:00:00+03:00"
+                        cancellationReason: null
+                    total: 4
+                    limit: 20
+                    offset: 0
+                empty_bookings:
+                  summary: Нет записей
+                  value:
+                    bookings: []
+                    total: 0
+                    limit: 20
+                    offset: 0
+        '400':
+          description: Неверные параметры запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_status:
+                  value:
+                    code: "INVALID_STATUS_FILTER"
+                    message: "Недопустимое значение статуса"
+                invalid_limit:
+                  value:
+                    code: "INVALID_LIMIT"
+                    message: "Лимит должен быть от 1 до 50"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+components:
+  schemas:
+    BookingListItem:
+      type: object
+      required:
+        - id
+        - status
+        - slot
+        - totalPrice
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор записи
+          example: "book-001"
+        status:
+          $ref: '#/components/schemas/BookingStatus'
+        slot:
+          type: object
+          required:
+            - id
+            - startTime
+            - endTime
+            - format
+            - instructorName
+            - zone
+          properties:
+            id:
+              type: string
+              format: uuid
+              description: ID слота тренировки
+              example: "slot-001"
+            startTime:
+              type: string
+              format: date-time
+              description: Время начала тренировки
+              example: "2026-07-05T18:00:00+03:00"
+            endTime:
+              type: string
+              format: date-time
+              description: Время окончания тренировки
+              example: "2026-07-05T19:30:00+03:00"
+            format:
+              type: string
+              enum:
+                - BOULDERING_BEGINNER
+                - ROPE_ADVANCED
+              description: Формат тренировки
+              example: "BOULDERING_BEGINNER"
+            instructorName:
+              type: string
+              description: Имя инструктора
+              example: "Анна С."
+            zone:
+              type: string
+              description: Название зоны проведения тренировки
+              example: "Стена А"
+        equipmentRental:
+          type: array
+          description: Список выбранных опций проката снаряжения
+          items:
+            type: string
+            enum:
+              - SHOES
+              - HARNESS
+          example: ["SHOES", "HARNESS"]
+        totalPrice:
+          type: number
+          format: decimal
+          description: Итоговая цена (тренировка + прокат)
+          example: 1700.00
+        createdAt:
+          type: string
+          format: date-time
+          description: Дата создания записи
+          example: "2026-07-05T16:30:00+03:00"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Дата последнего обновления записи
+          example: "2026-07-05T16:30:00+03:00"
+        cancellationReason:
+          type: string
+          description: Причина отмены (только для статусов CANCELLED_BY_GYM)
+          example: "Профилактика снаряжения"
+
+    BookingStatus:
+      type: string
+      description: Статус записи
+      enum:
+        - CONFIRMED
+        - CANCELLED_BY_CLIENT
+        - CANCELLED_BY_GYM
+        - COMPLETED
+        - NO_SHOW
+      x-enum-descriptions:
+        - "Подтверждена (активная запись)"
+        - "Отменена клиентом"
+        - "Отменена скалодромом"
+        - "Завершена (тренировка состоялась)"
+        - "No-show / долг (клиент не явился и не оплатил)"
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Код ошибки для программной обработки
+          example: "INVALID_STATUS_FILTER"
+        message:
+          type: string
+          description: Человекочитаемое сообщение об ошибке на русском языке
+          example: "Недопустимое значение статуса"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

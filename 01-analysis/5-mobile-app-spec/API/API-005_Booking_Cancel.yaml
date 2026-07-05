@@ -1,0 +1,187 @@
+# Отмена записи клиентом
+
+openapi: 3.0.3
+info:
+  title: API Отмены Записи — Вертикаль
+  description: |
+    Эндпоинт для отмены записи клиентом.
+    
+    **Принципы:**
+    - Все запросы требуют авторизации (JWT токен).
+    - Отмена возможна только для записей со статусом CONFIRMED.
+    - Запись должна принадлежать текущему клиенту (определяется по токену).
+    - Слот не должен быть начат (startTime > текущего времени).
+    - Применяется правило порога `n` минут для освобождения места.
+    
+    **Правило отмены (порог n минут):**
+    - До порога `n` минут: место освобождается для других клиентов.
+    - После порога `n` минут: место НЕ освобождается.
+    
+    **Связанные требования:**
+    - FR-031, FR-032, FR-035
+    - UC-005
+  version: 1.0.0
+  contact:
+    name: Команда разработки "Вертикаль"
+servers:
+  - url: https://api.vertical-climbing.ru/v1
+    description: Production server
+  - url: https://staging-api.vertical-climbing.ru/v1
+    description: Staging server
+paths:
+  /bookings/{bookingId}/cancel:
+    post:
+      summary: Отмена записи клиентом
+      description: |
+        Отменяет существующую запись клиента.
+        
+        **Проверки на сервере:**
+        1. Запись существует
+        2. Запись принадлежит текущему клиенту
+        3. Статус записи = CONFIRMED
+        4. Слот ещё не начался (startTime > now)
+        
+        **Результат отмены:**
+        - Статус записи становится CANCELLED_BY_CLIENT
+        - Если отмена до порога `n` минут → `spotFreed = true`
+        - Если отмена после порога `n` минут → `spotFreed = false`
+      tags:
+        - Bookings
+      operationId: cancelBooking
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: bookingId
+          in: path
+          required: true
+          description: ID записи для отмены
+          schema:
+            type: string
+            format: uuid
+            example: "book-001"
+      responses:
+        '200':
+          description: Запись успешно отменена
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                    description: ID отменённой записи
+                    example: "book-001"
+                  status:
+                    type: string
+                    enum:
+                      - CANCELLED_BY_CLIENT
+                    description: Новый статус записи
+                    example: "CANCELLED_BY_CLIENT"
+                  spotFreed:
+                    type: boolean
+                    description: |
+                      Освобождено ли место для других клиентов
+                      - true: место освобождено (отмена до порога n минут)
+                      - false: место не освобождено (отмена после порога n минут)
+                    example: true
+                  cancelledAt:
+                    type: string
+                    format: date-time
+                    description: Дата и время отмены
+                    example: "2026-07-05T17:00:00+03:00"
+              examples:
+                before_threshold:
+                  summary: Отмена до порога n минут (место освобождается)
+                  value:
+                    id: "book-001"
+                    status: "CANCELLED_BY_CLIENT"
+                    spotFreed: true
+                    cancelledAt: "2026-07-05T17:00:00+03:00"
+                after_threshold:
+                  summary: Отмена после порога n минут (место не освобождается)
+                  value:
+                    id: "book-001"
+                    status: "CANCELLED_BY_CLIENT"
+                    spotFreed: false
+                    cancelledAt: "2026-07-05T17:55:00+03:00"
+        '400':
+          description: Отмена невозможна
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                slot_started:
+                  value:
+                    code: "CANCELLATION_NOT_ALLOWED"
+                    message: "Нельзя отменить запись после начала тренировки"
+                invalid_status:
+                  value:
+                    code: "INVALID_BOOKING_STATUS"
+                    message: "Отмена доступна только для подтверждённых записей"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '403':
+          description: Доступ запрещён (запись принадлежит другому клиенту)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "FORBIDDEN"
+                message: "У вас нет прав на отмену этой записи"
+        '404':
+          description: Запись не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "BOOKING_NOT_FOUND"
+                message: "Запись не найдена"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Код ошибки для программной обработки
+          example: "CANCELLATION_NOT_ALLOWED"
+        message:
+          type: string
+          description: Человекочитаемое сообщение об ошибке на русском языке
+          example: "Нельзя отменить запись после начала тренировки"
+        details:
+          type: object
+          description: Дополнительные детали ошибки
+          example:
+            thresholdMinutes: 120
+            minutesUntilStart: 15
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

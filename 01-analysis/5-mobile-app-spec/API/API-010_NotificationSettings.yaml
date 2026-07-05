@@ -1,0 +1,402 @@
+# Получение и обновление настроек уведомлений
+
+openapi: 3.0.3
+info:
+  title: API Настроек Уведомлений — Вертикаль
+  description: |
+    Эндпоинты для получения и обновления настроек уведомлений клиента.
+    
+    **Принципы:**
+    - Все запросы требуют авторизации (JWT токен).
+    - Настройки привязаны к клиенту (определяется по токену).
+    - Push-уведомления управляются через настройки ОС.
+    - Время напоминания задаётся клиентом в минутах до тренировки.
+    
+    **Связанные требования:**
+    - FR-080, FR-087
+    - UC-013
+  version: 1.0.0
+  contact:
+    name: Команда разработки "Вертикаль"
+servers:
+  - url: https://api.vertical-climbing.ru/v1
+    description: Production server
+  - url: https://staging-api.vertical-climbing.ru/v1
+    description: Staging server
+paths:
+  /notifications/settings:
+    get:
+      summary: Получение настроек уведомлений
+      description: |
+        Возвращает текущие настройки уведомлений клиента.
+        
+        **Настройки включают:**
+        - Время напоминания о тренировке (в минутах до начала)
+        - Включено ли дублирование на email
+        - Статус push-уведомлений (управляется через ОС)
+      tags:
+        - Notifications
+      operationId: getNotificationSettings
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Успешный ответ с настройками уведомлений
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettings'
+              examples:
+                full_settings:
+                  summary: Полные настройки
+                  value:
+                    clientId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    reminderTimeMinutes: 120
+                    emailEnabled: true
+                    pushEnabled: true
+                    updatedAt: "2026-07-05T14:30:00+03:00"
+                push_disabled:
+                  summary: Push-уведомления отключены в ОС
+                  value:
+                    clientId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    reminderTimeMinutes: 60
+                    emailEnabled: true
+                    pushEnabled: false
+                    updatedAt: "2026-07-04T10:00:00+03:00"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+    patch:
+      summary: Частичное обновление настроек уведомлений
+      description: |
+        Обновляет указанные настройки уведомлений клиента.
+        
+        **Доступные для обновления поля:**
+        - reminderTimeMinutes (время напоминания)
+        - emailEnabled (дублирование на email)
+        
+        **Примечание:**
+        - pushEnabled управляется через настройки ОС, не через API
+        - Все изменения сохраняются немедленно
+      tags:
+        - Notifications
+      operationId: updateNotificationSettings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reminderTimeMinutes:
+                  type: integer
+                  minimum: 15
+                  maximum: 1440
+                  description: |
+                    Время напоминания о тренировке в минутах до начала.
+                    Доступные значения: 15, 30, 60, 120, 240, 720, 1440
+                  example: 120
+                emailEnabled:
+                  type: boolean
+                  description: Включить/отключить дублирование уведомлений на email
+                  example: true
+            examples:
+              update_reminder:
+                summary: Изменение времени напоминания
+                value:
+                  reminderTimeMinutes: 60
+              update_email:
+                summary: Включение email-дублирования
+                value:
+                  emailEnabled: true
+              update_both:
+                summary: Изменение обоих параметров
+                value:
+                  reminderTimeMinutes: 120
+                  emailEnabled: false
+      responses:
+        '200':
+          description: Настройки успешно обновлены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationSettings'
+              example:
+                clientId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                reminderTimeMinutes: 60
+                emailEnabled: true
+                pushEnabled: true
+                updatedAt: "2026-07-05T15:00:00+03:00"
+        '400':
+          description: Неверные данные запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_reminder:
+                  value:
+                    code: "INVALID_REMINDER_TIME"
+                    message: "Время напоминания должно быть от 15 до 1440 минут"
+                invalid_reminder_value:
+                  value:
+                    code: "INVALID_REMINDER_VALUE"
+                    message: "Допустимые значения: 15, 30, 60, 120, 240, 720, 1440"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+  /notifications/history:
+    get:
+      summary: Получение истории уведомлений
+      description: |
+        Возвращает историю отправленных уведомлений клиенту.
+        
+        **Типы уведомлений:**
+        - REMINDER — напоминание о тренировке
+        - CANCELLED_BY_GYM — отмена скалодромом
+        - TIME_CHANGED — изменение времени
+        - INSTRUCTOR_CHANGED — смена инструктора
+        - RATING_REMINDER — напоминание об оценке
+        
+        **Сортировка:** По убыванию даты (последние сверху)
+      tags:
+        - Notifications
+      operationId: getNotificationHistory
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Количество записей (максимум 50)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+            example: 20
+        - name: offset
+          in: query
+          description: Смещение для пагинации
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+            example: 0
+      responses:
+        '200':
+          description: Успешный ответ с историей уведомлений
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationHistoryItem'
+                  total:
+                    type: integer
+                    description: Общее количество уведомлений
+                    example: 25
+                  limit:
+                    type: integer
+                    example: 20
+                  offset:
+                    type: integer
+                    example: 0
+              examples:
+                history_with_items:
+                  summary: История с уведомлениями
+                  value:
+                    history:
+                      - id: "notif-001"
+                        type: "REMINDER"
+                        title: "Напоминание о тренировке"
+                        message: "У вас тренировка завтра в 18:00. Не забудьте прийти!"
+                        sentAt: "2026-07-04T16:00:00+03:00"
+                        read: true
+                        bookingId: "book-001"
+                      - id: "notif-002"
+                        type: "CANCELLED_BY_GYM"
+                        title: "Тренировка отменена"
+                        message: "Тренировка 18:00 отменена по причине: Профилактика снаряжения"
+                        sentAt: "2026-07-04T14:30:00+03:00"
+                        read: false
+                        bookingId: "book-002"
+                      - id: "notif-003"
+                        type: "TIME_CHANGED"
+                        title: "Изменение времени тренировки"
+                        message: "Время тренировки изменено с 18:00 на 19:00"
+                        sentAt: "2026-07-03T12:00:00+03:00"
+                        read: true
+                        bookingId: "book-003"
+                    total: 25
+                    limit: 20
+                    offset: 0
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+components:
+  schemas:
+    NotificationSettings:
+      type: object
+      required:
+        - clientId
+        - reminderTimeMinutes
+        - emailEnabled
+        - pushEnabled
+        - updatedAt
+      properties:
+        clientId:
+          type: string
+          format: uuid
+          description: ID клиента
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        reminderTimeMinutes:
+          type: integer
+          description: Время напоминания о тренировке в минутах до начала
+          example: 120
+        emailEnabled:
+          type: boolean
+          description: Включено ли дублирование уведомлений на email
+          example: true
+        pushEnabled:
+          type: boolean
+          description: Включены ли push-уведомления (управляется через настройки ОС)
+          example: true
+        updatedAt:
+          type: string
+          format: date-time
+          description: Дата последнего обновления настроек
+          example: "2026-07-05T14:30:00+03:00"
+
+    NotificationHistoryItem:
+      type: object
+      required:
+        - id
+        - type
+        - title
+        - message
+        - sentAt
+        - read
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор уведомления
+          example: "notif-001"
+        type:
+          type: string
+          enum:
+            - REMINDER
+            - CANCELLED_BY_GYM
+            - TIME_CHANGED
+            - INSTRUCTOR_CHANGED
+            - RATING_REMINDER
+          description: Тип уведомления
+          example: "REMINDER"
+        title:
+          type: string
+          description: Заголовок уведомления
+          example: "Напоминание о тренировке"
+        message:
+          type: string
+          description: Текст уведомления
+          example: "У вас тренировка завтра в 18:00. Не забудьте прийти!"
+        sentAt:
+          type: string
+          format: date-time
+          description: Дата и время отправки уведомления
+          example: "2026-07-04T16:00:00+03:00"
+        read:
+          type: boolean
+          description: Прочитано ли уведомление
+          example: true
+        bookingId:
+          type: string
+          format: uuid
+          description: ID связанной записи (если есть)
+          example: "book-001"
+        slotId:
+          type: string
+          format: uuid
+          description: ID связанного слота (если есть)
+          example: "slot-001"
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Код ошибки для программной обработки
+          example: "INVALID_REMINDER_TIME"
+        message:
+          type: string
+          description: Человекочитаемое сообщение об ошибке на русском языке
+          example: "Время напоминания должно быть от 15 до 1440 минут"
+        details:
+          type: object
+          description: Дополнительные детали ошибки
+          example:
+            allowedValues: [15, 30, 60, 120, 240, 720, 1440]
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

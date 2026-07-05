@@ -1,0 +1,401 @@
+# Создание и обновление оценки инструктора
+
+openapi: 3.0.3
+info:
+  title: API Оценки Инструктора — Вертикаль
+  description: |
+    Эндпоинты для создания и обновления оценки инструктора клиентом.
+    
+    **Принципы:**
+    - Все запросы требуют авторизации (JWT токен).
+    - Клиент может оценить инструктора один раз (звёзды не редактируются).
+    - Комментарий можно добавлять и изменять в любой момент.
+    - Оценка публикуется от имени клиента.
+    
+    **Связанные требования:**
+    - FR-060, FR-061, FR-062, FR-063, FR-064, FR-085
+    - UC-014
+  version: 1.0.0
+  contact:
+    name: Команда разработки "Вертикаль"
+servers:
+  - url: https://api.vertical-climbing.ru/v1
+    description: Production server
+  - url: https://staging-api.vertical-climbing.ru/v1
+    description: Staging server
+paths:
+  /ratings:
+    post:
+      summary: Создание оценки инструктора
+      description: |
+        Создаёт новую оценку для инструктора.
+        
+        **Проверки:**
+        - Клиент может оценить инструктора только один раз
+        - Звёзды обязательны (от 1 до 5)
+        - Комментарий опционален (максимум 500 символов)
+        - Оценка публикуется от имени аккаунта клиента
+      tags:
+        - Ratings
+      operationId: createRating
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - instructorId
+                - stars
+              properties:
+                instructorId:
+                  type: string
+                  format: uuid
+                  description: ID инструктора, которому ставится оценка
+                  example: "inst-001"
+                stars:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                  description: Оценка в звёздах (1-5)
+                  example: 5
+                comment:
+                  type: string
+                  maxLength: 500
+                  description: Текстовый комментарий (опционально)
+                  example: "Отличный инструктор! Всё понятно объясняет."
+            examples:
+              with_comment:
+                summary: Оценка с комментарием
+                value:
+                  instructorId: "inst-001"
+                  stars: 5
+                  comment: "Отличный инструктор! Всё понятно объясняет."
+              without_comment:
+                summary: Оценка без комментария
+                value:
+                  instructorId: "inst-002"
+                  stars: 4
+      responses:
+        '201':
+          description: Оценка успешно создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rating'
+              example:
+                id: "rating-001"
+                clientId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                instructorId: "inst-001"
+                instructorName: "Анна С."
+                stars: 5
+                comment: "Отличный инструктор! Всё понятно объясняет."
+                createdAt: "2026-07-05T18:30:00+03:00"
+                updatedAt: "2026-07-05T18:30:00+03:00"
+        '400':
+          description: Неверные данные запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_stars:
+                  value:
+                    code: "INVALID_STARS_VALUE"
+                    message: "Оценка должна быть от 1 до 5 звёзд"
+                comment_too_long:
+                  value:
+                    code: "COMMENT_TOO_LONG"
+                    message: "Комментарий не должен превышать 500 символов"
+                invalid_instructor:
+                  value:
+                    code: "INSTRUCTOR_NOT_FOUND"
+                    message: "Инструктор не найден"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '409':
+          description: Конфликт - клиент уже оценил этого инструктора
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "RATING_ALREADY_EXISTS"
+                message: "Вы уже оценили этого инструктора. Изменение звёзд недоступно."
+                details:
+                  ratingId: "rating-001"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+  /ratings/{ratingId}/comment:
+    patch:
+      summary: Обновление комментария к оценке
+      description: |
+        Обновляет комментарий к существующей оценке.
+        
+        **Правила:**
+        - Комментарий можно изменить в любой момент
+        - Звёзды НЕЛЬЗЯ изменить через этот эндпоинт
+        - Комментарий может быть удалён (передать пустую строку)
+        - Оценка должна принадлежать текущему клиенту
+      tags:
+        - Ratings
+      operationId: updateRatingComment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ratingId
+          in: path
+          required: true
+          description: ID оценки для обновления комментария
+          schema:
+            type: string
+            format: uuid
+            example: "rating-001"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - comment
+              properties:
+                comment:
+                  type: string
+                  maxLength: 500
+                  description: Новый текст комментария (пустая строка = удалить комментарий)
+                  example: "Отличный инструктор! Анна — замечательный профессионал."
+            examples:
+              update_comment:
+                summary: Обновление комментария
+                value:
+                  comment: "Отличный инструктор! Анна — замечательный профессионал."
+              delete_comment:
+                summary: Удаление комментария
+                value:
+                  comment: ""
+      responses:
+        '200':
+          description: Комментарий успешно обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rating'
+              example:
+                id: "rating-001"
+                clientId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                instructorId: "inst-001"
+                instructorName: "Анна С."
+                stars: 5
+                comment: "Отличный инструктор! Анна — замечательный профессионал."
+                createdAt: "2026-07-05T18:30:00+03:00"
+                updatedAt: "2026-07-05T19:00:00+03:00"
+        '400':
+          description: Неверные данные запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "COMMENT_TOO_LONG"
+                message: "Комментарий не должен превышать 500 символов"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '403':
+          description: Доступ запрещён (оценка принадлежит другому клиенту)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "FORBIDDEN"
+                message: "У вас нет прав на изменение этой оценки"
+        '404':
+          description: Оценка не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "RATING_NOT_FOUND"
+                message: "Оценка не найдена"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+  /ratings/{ratingId}:
+    get:
+      summary: Получение оценки
+      description: |
+        Возвращает детали оценки инструктора.
+        
+        **Используется для:**
+        - Просмотра оценки после создания
+        - Проверки, оставлял ли клиент оценку
+      tags:
+        - Ratings
+      operationId: getRating
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ratingId
+          in: path
+          required: true
+          description: ID оценки
+          schema:
+            type: string
+            format: uuid
+            example: "rating-001"
+      responses:
+        '200':
+          description: Успешный ответ с данными оценки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rating'
+              example:
+                id: "rating-001"
+                clientId: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                instructorId: "inst-001"
+                instructorName: "Анна С."
+                stars: 5
+                comment: "Отличный инструктор! Всё понятно объясняет."
+                createdAt: "2026-07-05T18:30:00+03:00"
+                updatedAt: "2026-07-05T18:30:00+03:00"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '403':
+          description: Доступ запрещён (оценка принадлежит другому клиенту)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "FORBIDDEN"
+                message: "У вас нет прав на просмотр этой оценки"
+        '404':
+          description: Оценка не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "RATING_NOT_FOUND"
+                message: "Оценка не найдена"
+
+components:
+  schemas:
+    Rating:
+      type: object
+      required:
+        - id
+        - clientId
+        - instructorId
+        - instructorName
+        - stars
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор оценки
+          example: "rating-001"
+        clientId:
+          type: string
+          format: uuid
+          description: ID клиента, оставившего оценку
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        instructorId:
+          type: string
+          format: uuid
+          description: ID оцениваемого инструктора
+          example: "inst-001"
+        instructorName:
+          type: string
+          description: Имя инструктора (для отображения)
+          example: "Анна С."
+        stars:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Оценка в звёздах (1-5)
+          example: 5
+        comment:
+          type: string
+          maxLength: 500
+          description: Текстовый комментарий (опционально)
+          example: "Отличный инструктор! Всё понятно объясняет."
+        createdAt:
+          type: string
+          format: date-time
+          description: Дата создания оценки
+          example: "2026-07-05T18:30:00+03:00"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Дата последнего обновления (комментария)
+          example: "2026-07-05T18:30:00+03:00"
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Код ошибки для программной обработки
+          example: "RATING_ALREADY_EXISTS"
+        message:
+          type: string
+          description: Человекочитаемое сообщение об ошибке на русском языке
+          example: "Вы уже оценили этого инструктора. Изменение звёзд недоступно."
+        details:
+          type: object
+          description: Дополнительные детали ошибки
+          example:
+            ratingId: "rating-001"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

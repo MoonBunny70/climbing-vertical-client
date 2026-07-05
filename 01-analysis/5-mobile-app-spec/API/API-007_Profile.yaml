@@ -1,0 +1,324 @@
+# Получение и обновление данных профиля клиента
+
+openapi: 3.0.3
+info:
+  title: API Профиля — Вертикаль
+  description: |
+    Эндпоинты для получения и обновления данных профиля клиента.
+    
+    **Принципы:**
+    - Все запросы требуют авторизации (JWT токен).
+    - Возвращаются только данные текущего клиента (определяется по токену).
+    - Частичное обновление профиля (PATCH) — можно обновить отдельные поля.
+    
+    **Связанные требования:**
+    - FR-006, FR-007
+    - UC-002
+  version: 1.0.0
+  contact:
+    name: Команда разработки "Вертикаль"
+servers:
+  - url: https://api.vertical-climbing.ru/v1
+    description: Production server
+  - url: https://staging-api.vertical-climbing.ru/v1
+    description: Staging server
+paths:
+  /profile:
+    get:
+      summary: Получение данных профиля
+      description: |
+        Возвращает полные данные профиля текущего авторизованного клиента.
+        
+        **Включает:**
+        - Личные данные (имя, телефон, email, дата рождения)
+        - Фото/аватар
+        - Статус клиента (для будущей программы лояльности)
+        - Флаг наличия долга
+        - Даты создания и обновления
+      tags:
+        - Profile
+      operationId: getProfile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Успешный ответ с данными профиля
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+              examples:
+                full_profile:
+                  summary: Полный профиль клиента
+                  value:
+                    id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    phone: "+79991234567"
+                    email: "anna@mail.com"
+                    telegramId: null
+                    name: "Анна С."
+                    birthDate: "1995-03-15"
+                    photo: "https://storage.vertical-climbing.ru/avatars/user_123.jpg"
+                    clientStatus: "Постоянный клиент"
+                    hasDebt: false
+                    createdAt: "2026-01-01T10:00:00+03:00"
+                    updatedAt: "2026-07-05T14:30:00+03:00"
+                profile_with_debt:
+                  summary: Профиль клиента с долгом
+                  value:
+                    id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    phone: "+79991234567"
+                    email: "anna@mail.com"
+                    telegramId: null
+                    name: "Анна С."
+                    birthDate: "1995-03-15"
+                    photo: "https://storage.vertical-climbing.ru/avatars/user_123.jpg"
+                    clientStatus: "Постоянный клиент"
+                    hasDebt: true
+                    createdAt: "2026-01-01T10:00:00+03:00"
+                    updatedAt: "2026-07-05T14:30:00+03:00"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+    patch:
+      summary: Частичное обновление профиля
+      description: |
+        Обновляет указанные поля профиля клиента.
+        
+        **Доступные для обновления поля:**
+        - name
+        - email
+        - phone (требует подтверждения)
+        - photo (URL аватара)
+        
+        **Ограничения:**
+        - Номер телефона можно изменить только с подтверждением (отдельный процесс)
+        - Дата рождения и telegramId не редактируются через этот эндпоинт
+        - Статус клиента управляется только администратором
+      tags:
+        - Profile
+      operationId: updateProfile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  description: Имя клиента
+                  example: "Анна Петрова"
+                email:
+                  type: string
+                  format: email
+                  description: Email клиента
+                  example: "anna.petrova@mail.com"
+                phone:
+                  type: string
+                  pattern: '^\+7\d{10}$'
+                  description: Номер телефона (требуется подтверждение)
+                  example: "+79998765432"
+                photo:
+                  type: string
+                  format: uri
+                  description: URL фото/аватара клиента
+                  example: "https://storage.vertical-climbing.ru/avatars/user_123_new.jpg"
+            examples:
+              update_name:
+                summary: Обновление имени
+                value:
+                  name: "Анна Петрова"
+              update_email:
+                summary: Обновление email
+                value:
+                  email: "anna.petrova@mail.com"
+              update_photo:
+                summary: Обновление фото
+                value:
+                  photo: "https://storage.vertical-climbing.ru/avatars/user_123_new.jpg"
+              update_multiple:
+                summary: Обновление нескольких полей
+                value:
+                  name: "Анна Петрова"
+                  email: "anna.petrova@mail.com"
+      responses:
+        '200':
+          description: Профиль успешно обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+              examples:
+                updated_profile:
+                  summary: Обновлённый профиль
+                  value:
+                    id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    phone: "+79991234567"
+                    email: "anna.petrova@mail.com"
+                    telegramId: null
+                    name: "Анна Петрова"
+                    birthDate: "1995-03-15"
+                    photo: "https://storage.vertical-climbing.ru/avatars/user_123_new.jpg"
+                    clientStatus: "Постоянный клиент"
+                    hasDebt: false
+                    createdAt: "2026-01-01T10:00:00+03:00"
+                    updatedAt: "2026-07-05T15:00:00+03:00"
+        '400':
+          description: Неверные данные запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_phone:
+                  value:
+                    code: "INVALID_PHONE_FORMAT"
+                    message: "Введите корректный номер телефона в формате +7XXXXXXXXXX"
+                invalid_email:
+                  value:
+                    code: "INVALID_EMAIL_FORMAT"
+                    message: "Введите корректный email"
+                short_name:
+                  value:
+                    code: "INVALID_NAME_LENGTH"
+                    message: "Имя должно содержать минимум 2 символа"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '409':
+          description: Конфликт - email уже используется другим клиентом
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "EMAIL_ALREADY_USED"
+                message: "Этот email уже используется другим пользователем"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+components:
+  schemas:
+    UserProfile:
+      type: object
+      required:
+        - id
+        - phone
+        - name
+        - birthDate
+        - hasDebt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор клиента
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        phone:
+          type: string
+          pattern: '^\+7\d{10}$'
+          description: Номер телефона
+          example: "+79991234567"
+        email:
+          type: string
+          format: email
+          description: Email клиента (если указан)
+          example: "anna@mail.com"
+        telegramId:
+          type: string
+          description: ID в Telegram (если зарегистрирован через Telegram)
+          example: "123456789"
+        name:
+          type: string
+          minLength: 2
+          description: Имя клиента
+          example: "Анна С."
+        birthDate:
+          type: string
+          format: date
+          description: Дата рождения
+          example: "1995-03-15"
+        photo:
+          type: string
+          format: uri
+          description: URL фото/аватара клиента
+          example: "https://storage.vertical-climbing.ru/avatars/user_123.jpg"
+        clientStatus:
+          type: string
+          description: |
+            Статус клиента (для будущей программы лояльности).
+            Управляется администратором, поле без логики в MVP.
+          example: "Постоянный клиент"
+        hasDebt:
+          type: boolean
+          description: Флаг активного долга за неявку
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+          description: Дата создания аккаунта
+          example: "2026-01-01T10:00:00+03:00"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Дата последнего обновления профиля
+          example: "2026-07-05T14:30:00+03:00"
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Код ошибки для программной обработки
+          example: "INVALID_PHONE_FORMAT"
+        message:
+          type: string
+          description: Человекочитаемое сообщение об ошибке на русском языке
+          example: "Введите корректный номер телефона в формате +7XXXXXXXXXX"
+        details:
+          type: object
+          description: Дополнительные детали ошибки
+          example:
+            field: "email"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

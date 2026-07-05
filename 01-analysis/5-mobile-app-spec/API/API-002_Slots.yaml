@@ -1,0 +1,340 @@
+# Получение расписания (список слотов с фильтрацией по дате и формату)
+
+openapi: 3.0.3
+info:
+  title: API Расписания — Вертикаль
+  description: |
+    Эндпоинты для получения списка доступных слотов тренировок.
+    
+    **Принципы:**
+    - Все запросы требуют авторизации (JWT токен).
+    - Бэкенд является источником истины для расписания.
+    - Слоты отображаются на горизонте до 7 дней.
+    - Слоты, отменённые скалодромом, возвращаются со статусом CANCELLED_BY_GYM.
+    
+    **Связанные требования:**
+    - FR-010, FR-011, FR-012, FR-013, FR-014, FR-015
+    - UC-003
+  version: 1.0.0
+  contact:
+    name: Команда разработки "Вертикаль"
+servers:
+  - url: https://api.vertical-climbing.ru/v1
+    description: Production server
+  - url: https://staging-api.vertical-climbing.ru/v1
+    description: Staging server
+paths:
+  /slots:
+    get:
+      summary: Получение расписания тренировок
+      description: |
+        Возвращает список слотов тренировок на указанный период.
+        По умолчанию возвращает слоты на 7 дней вперёд от текущей даты.
+        Поддерживает фильтрацию по формату тренировки.
+      tags:
+        - Schedule
+      operationId: getSlots
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          description: Начальная дата периода (включительно) в формате ISO 8601 (YYYY-MM-DD). По умолчанию сегодня.
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2026-07-05"
+        - name: to
+          in: query
+          description: Конечная дата периода (включительно) в формате ISO 8601 (YYYY-MM-DD). Максимальный период — 7 дней. По умолчанию today + 7 дней.
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2026-07-12"
+        - name: format
+          in: query
+          description: Фильтр по формату тренировки. Если не указан, возвращаются все форматы.
+          required: false
+          schema:
+            type: string
+            enum:
+              - BOULDERING_BEGINNER
+              - ROPE_ADVANCED
+            example: "BOULDERING_BEGINNER"
+      responses:
+        '200':
+          description: Успешный ответ со списком слотов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slots:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TrainingSlot'
+                  total:
+                    type: integer
+                    description: Общее количество слотов в ответе
+                    example: 12
+                  from:
+                    type: string
+                    format: date
+                    description: Начальная дата запроса
+                    example: "2026-07-05"
+                  to:
+                    type: string
+                    format: date
+                    description: Конечная дата запроса
+                    example: "2026-07-12"
+              examples:
+                slots_available:
+                  summary: Список слотов с доступными местами
+                  value:
+                    slots:
+                      - id: "slot-001"
+                        startTime: "2026-07-05T18:00:00+03:00"
+                        endTime: "2026-07-05T19:30:00+03:00"
+                        duration: 90
+                        format: "BOULDERING_BEGINNER"
+                        instructorId: "inst-001"
+                        instructorName: "Анна С."
+                        zone: "Стена А"
+                        totalSpots: 8
+                        availableSpots: 5
+                        price: 1200
+                        status: "AVAILABLE"
+                        cancellationReason: null
+                        equipmentRentalOptions:
+                          - option: "SHOES"
+                            pricePerUnit: 200
+                          - option: "HARNESS"
+                            pricePerUnit: 300
+                    total: 1
+                    from: "2026-07-05"
+                    to: "2026-07-12"
+                slots_low_availability:
+                  summary: Слоты с малым количеством мест
+                  value:
+                    slots:
+                      - id: "slot-002"
+                        startTime: "2026-07-05T19:30:00+03:00"
+                        endTime: "2026-07-05T21:00:00+03:00"
+                        duration: 90
+                        format: "ROPE_ADVANCED"
+                        instructorId: "inst-002"
+                        instructorName: "Дмитрий К."
+                        zone: "Стена Б"
+                        totalSpots: 8
+                        availableSpots: 2
+                        price: 1500
+                        status: "AVAILABLE"
+                        cancellationReason: null
+                        equipmentRentalOptions:
+                          - option: "SHOES"
+                            pricePerUnit: 200
+                          - option: "HARNESS"
+                            pricePerUnit: 300
+                    total: 1
+                    from: "2026-07-05"
+                    to: "2026-07-12"
+                slots_cancelled:
+                  summary: Слот отменён скалодромом
+                  value:
+                    slots:
+                      - id: "slot-003"
+                        startTime: "2026-07-05T21:00:00+03:00"
+                        endTime: "2026-07-05T22:30:00+03:00"
+                        duration: 90
+                        format: "BOULDERING_BEGINNER"
+                        instructorId: "inst-003"
+                        instructorName: "Сергей П."
+                        zone: "Стена А"
+                        totalSpots: 8
+                        availableSpots: 0
+                        price: 1200
+                        status: "CANCELLED_BY_GYM"
+                        cancellationReason: "Профилактика снаряжения"
+                        equipmentRentalOptions: []
+                    total: 1
+                    from: "2026-07-05"
+                    to: "2026-07-12"
+                empty_slots:
+                  summary: Нет доступных слотов
+                  value:
+                    slots: []
+                    total: 0
+                    from: "2026-07-05"
+                    to: "2026-07-12"
+        '401':
+          description: Невалидный или истекший токен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "UNAUTHORIZED"
+                message: "Необходима авторизация. Токен невалидный или истёк"
+        '400':
+          description: Неверные параметры запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_date_range:
+                  value:
+                    code: "INVALID_DATE_RANGE"
+                    message: "Период не должен превышать 7 дней"
+                invalid_format:
+                  value:
+                    code: "INVALID_FORMAT_FILTER"
+                    message: "Недопустимое значение формата тренировки"
+        '503':
+          description: Сервис временно недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: "SERVICE_UNAVAILABLE"
+                message: "Сервис временно недоступен. Попробуйте позже"
+
+components:
+  schemas:
+    TrainingSlot:
+      type: object
+      required:
+        - id
+        - startTime
+        - endTime
+        - duration
+        - format
+        - instructorId
+        - instructorName
+        - zone
+        - totalSpots
+        - availableSpots
+        - price
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор слота
+          example: "slot-001"
+        startTime:
+          type: string
+          format: date-time
+          description: Время начала тренировки в часовом поясе Москвы (UTC+3)
+          example: "2026-07-05T18:00:00+03:00"
+        endTime:
+          type: string
+          format: date-time
+          description: Время окончания тренировки (всегда startTime + 90 минут)
+          example: "2026-07-05T19:30:00+03:00"
+        duration:
+          type: integer
+          description: Длительность тренировки в минутах (всегда 90)
+          example: 90
+        format:
+          $ref: '#/components/schemas/TrainingFormat'
+        instructorId:
+          type: string
+          format: uuid
+          description: ID инструктора
+          example: "inst-001"
+        instructorName:
+          type: string
+          description: Имя инструктора (для быстрого отображения)
+          example: "Анна С."
+        zone:
+          type: string
+          description: Название зоны проведения тренировки
+          example: "Стена А"
+        totalSpots:
+          type: integer
+          description: Общее количество мест (8 для болдеринга, 16 для трасс)
+          example: 8
+        availableSpots:
+          type: integer
+          description: Количество свободных мест
+          example: 5
+        price:
+          type: number
+          format: decimal
+          description: Цена тренировки в рублях
+          example: 1200.00
+        status:
+          $ref: '#/components/schemas/SlotStatus'
+        cancellationReason:
+          type: string
+          description: Причина отмены (только если status = CANCELLED_BY_GYM)
+          example: "Профилактика снаряжения"
+        equipmentRentalOptions:
+          type: array
+          description: Доступные позиции проката снаряжения с ценами
+          items:
+            $ref: '#/components/schemas/EquipmentRentalOption'
+
+    TrainingFormat:
+      type: string
+      description: Формат тренировки
+      enum:
+        - BOULDERING_BEGINNER
+        - ROPE_ADVANCED
+      x-enum-descriptions:
+        - "Болдеринг для новичков (лимит 8 мест)"
+        - "Трассы с верёвкой для опытных (лимит 16 мест)"
+
+    SlotStatus:
+      type: string
+      description: Статус слота
+      enum:
+        - AVAILABLE
+        - CANCELLED_BY_GYM
+      x-enum-descriptions:
+        - "Слот доступен для записи"
+        - "Слот отменён скалодромом (недоступен для записи)"
+
+    EquipmentRentalOption:
+      type: object
+      required:
+        - option
+        - pricePerUnit
+      properties:
+        option:
+          type: string
+          enum:
+            - SHOES
+            - HARNESS
+          description: Тип проката
+          example: "SHOES"
+        pricePerUnit:
+          type: number
+          format: decimal
+          description: Цена за единицу проката в рублях
+          example: 200.00
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Код ошибки для программной обработки
+          example: "UNAUTHORIZED"
+        message:
+          type: string
+          description: Человекочитаемое сообщение об ошибке на русском языке
+          example: "Необходима авторизация. Токен невалидный или истёк"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
